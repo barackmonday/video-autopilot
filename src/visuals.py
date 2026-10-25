@@ -96,7 +96,7 @@ def _pexels_video(query: str, dest: Path, cfg: dict, used_ids: Optional[set] = N
 
 def _pixabay_video(query: str, dest: Path, cfg: dict, used_ids: Optional[set] = None) -> Path:
     """Free stock video from Pixabay. Clips are mostly landscape; the assembler crops to 9:16."""
-    key = env("PIXABAY_API_KEY")
+    key = (env("PIXABAY_API_KEY") or "").strip()  # ignore stray spaces/newlines from pasting
     if not key:
         raise SystemExit("PIXABAY_API_KEY missing (add it as a secret / in .env)")
     used_ids = used_ids if used_ids is not None else set()
