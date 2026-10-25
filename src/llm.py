@@ -95,23 +95,30 @@ def _openai_compatible(provider: str, prompt: str, llm: dict, max_tokens: int) -
 
 
 def _with_retry(call, llm: dict):
-    """Retry on rate limits — free tiers (OpenRouter/Groq/Gemini) 429 often.
+    """Retry on rate limits AND temporary server overloads (503) — free tiers
+    (OpenRouter/Groq/Gemini) hit both often.
 
-    Honors the provider's Retry-After hint when present, else exponential backoff.
+    Rate limits honor the provider's Retry-After hint when present, else short backoff.
+    Server overloads ("high demand") wait longer: 20s, 40s, 80s, then 2 minutes.
     """
     import time
 
-    from openai import APIConnectionError, RateLimitError
+    from openai import APIConnectionError, InternalServerError, RateLimitError
 
-    retries = int(llm.get("max_retries", 4))
+    retries = int(llm.get("max_retries", 6))
     for attempt in range(retries + 1):
         try:
             return call()
-        except (RateLimitError, APIConnectionError) as e:
+        except (RateLimitError, APIConnectionError, InternalServerError) as e:
             if attempt == retries:
                 raise
-            wait = _retry_after(e) or min(2 ** attempt * 2, 30)
-            print(f"  ! LLM rate-limited; retrying in {wait:.0f}s "
+            if isinstance(e, InternalServerError):
+                wait = min(20 * 2 ** attempt, 120)
+                why = "LLM server busy"
+            else:
+                wait = _retry_after(e) or min(2 ** attempt * 2, 30)
+                why = "LLM rate-limited"
+            print(f"  ! {why}; retrying in {wait:.0f}s "
                   f"(attempt {attempt + 1}/{retries})", flush=True)
             time.sleep(wait)
 
