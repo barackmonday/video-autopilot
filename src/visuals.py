@@ -1,7 +1,12 @@
-"""Stage 4 — gather one vertical visual per beat. Pexels stock (free) or AI images."""
+"""Stage 4 — gather one vertical visual per beat. Pexels or Pixabay stock (free) or AI images.
+
+If provider is "pexels" but no PEXELS_API_KEY is set, Pixabay is used automatically
+(needs PIXABAY_API_KEY). You can also set provider: pixabay directly.
+"""
 from __future__ import annotations
 
 import math
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -35,7 +40,10 @@ def gather_visuals(cfg: dict, script: dict, out_dir: Path, duration: float) -> l
     for i, q in enumerate(queries):
         dest = clips_dir / f"{i:02d}"
         try:
-            if provider == "pexels":
+            if provider == "pixabay" or (provider == "pexels" and not env("PEXELS_API_KEY")
+                                         and env("PIXABAY_API_KEY")):
+                paths.append(_pixabay_video(q, dest, cfg, used_ids))
+            elif provider == "pexels":
                 paths.append(_pexels_video(q, dest, cfg, used_ids))
             elif provider in ("fal", "replicate"):
                 paths.append(_ai_image(q, dest, cfg, provider))
@@ -83,6 +91,64 @@ def _pexels_video(query: str, dest: Path, cfg: dict, used_ids: Optional[set] = N
     url = files[0]["link"]
     out = dest.with_suffix(".mp4")
     out.write_bytes(requests.get(url, timeout=120).content)
+    return out
+
+
+def _pixabay_video(query: str, dest: Path, cfg: dict, used_ids: Optional[set] = None) -> Path:
+    """Free stock video from Pixabay. Clips are mostly landscape; the assembler crops to 9:16."""
+    key = env("PIXABAY_API_KEY")
+    if not key:
+        raise SystemExit("PIXABAY_API_KEY missing (add it as a secret / in .env)")
+    used_ids = used_ids if used_ids is not None else set()
+
+    # Pixabay matches best on short queries, so fall back from the full phrase to fewer words.
+    words = query.split()
+    attempts = [query[:100]]
+    for n in (3, 2, 1):
+        short = " ".join(words[:n])
+        if short and short not in attempts:
+            attempts.append(short)
+
+    hits: list = []
+    for q in attempts:
+        r = None
+        for _try in range(2):  # one retry if we hit the rate limit (100 requests/minute)
+            r = requests.get(
+                "https://pixabay.com/api/videos/",
+                params={"key": key, "q": q, "per_page": 20, "safesearch": "true",
+                        "order": "popular", "video_type": "film"},
+                timeout=30,
+            )
+            if r.status_code == 429:
+                wait = min(int(r.headers.get("X-RateLimit-Reset", "30") or 30), 65)
+                time.sleep(wait + 1)
+                continue
+            break
+        r.raise_for_status()
+        hits = r.json().get("hits", [])
+        if hits:
+            break
+    if not hits:
+        raise RuntimeError("no Pixabay results")
+
+    fresh = [h for h in hits if h.get("id") not in used_ids] or hits
+    hit = fresh[0]
+    used_ids.add(hit.get("id"))
+
+    # Choose a rendition: prefer portrait, otherwise the smallest one that is at least
+    # 1080px tall (avoids huge 4K downloads); fall back to the largest available.
+    renditions = [v for v in (hit.get("videos") or {}).values() if v.get("url")]
+    if not renditions:
+        raise RuntimeError("Pixabay result has no downloadable file")
+    portrait = [v for v in renditions if (v.get("height") or 0) >= (v.get("width") or 0)]
+    pool = portrait or renditions
+    big_enough = [v for v in pool if (v.get("height") or 0) >= 1080]
+    if big_enough:
+        chosen = min(big_enough, key=lambda v: v.get("height") or 0)
+    else:
+        chosen = max(pool, key=lambda v: v.get("height") or 0)
+    out = dest.with_suffix(".mp4")
+    out.write_bytes(requests.get(chosen["url"], timeout=180).content)
     return out
 
 
