@@ -31,7 +31,7 @@ def generate_idea(cfg: dict) -> dict:
         creator_notes=notes or "(none provided)",
         n=6,
     )
-    data = extract_json(complete(prompt, cfg, max_tokens=1200))
+    data = extract_json(complete(prompt, cfg, max_tokens=4000))
     ideas = data.get("ideas", [])
     if not ideas:
         raise RuntimeError("Ideation returned no ideas.")
