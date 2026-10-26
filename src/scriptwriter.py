@@ -35,7 +35,7 @@ def write_script(cfg: dict, idea: dict) -> dict:
         disclaimer_line=disclaimer_line,
     )
 
-    script = extract_json(complete(prompt, cfg, max_tokens=1500))
+    script = extract_json(complete(prompt, cfg, max_tokens=4000))
     if not script.get("full_script"):
         raise RuntimeError("Scriptwriter returned no full_script.")
 
