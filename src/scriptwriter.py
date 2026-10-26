@@ -53,7 +53,7 @@ def write_script(cfg: dict, idea: dict) -> dict:
             f"vivid detail and complete spoken sentences. Keep the hook and the punchy tone. "
             f"Return the SAME JSON shape.\n\nCurrent script JSON:\n{json.dumps(script)}"
         )
-        expanded = extract_json(complete(expand, cfg, max_tokens=1500))
+        expanded = extract_json(complete(expand, cfg, max_tokens=4000))
         if expanded.get("full_script"):
             script = expanded
 
